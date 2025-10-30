@@ -1,0 +1,16 @@
+[package]
+name = "rustls-hello-world"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rustls = "0.23.34"
+tokio = { version = "1.48.0", features = ["full"] }
+serde = { version = "1.0.219", features = ["derive"] }
+anyhow = "1.0.100"
+tokio-rustls = "0.26.4"
+futures = "0.3.31"
+rustls-pemfile = "2.2.0"
+argh = "0.1.13"
+dotenv = "0.15.0"
+ron = "0.11.0"
