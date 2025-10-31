@@ -1,4 +1,5 @@
 /target
-/options.ron
+/server_options.ron
+/client_options.ron
 /cert.pem
 /key.pem
