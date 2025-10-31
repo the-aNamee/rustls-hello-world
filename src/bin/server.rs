@@ -6,7 +6,6 @@ use std::{
 };
 
 use anyhow::Result;
-use argh::FromArgs;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use serde::Deserialize;
 use tokio::{
@@ -16,9 +15,8 @@ use tokio::{
 };
 use tokio_rustls::TlsAcceptor;
 
-/// Server Options
 #[derive(Deserialize)]
-struct Options {
+struct ServerOptions {
     /// bind addr
     addr: String,
     /// cert file
@@ -31,17 +29,20 @@ struct Options {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let options: Options = ron::from_str(&fs::read_to_string("options.ron").await?)?;
-    println!("{}", options.addr);
+    let server_options: ServerOptions =
+        ron::from_str(&fs::read_to_string("server_options.ron").await?)?;
 
-    let addr = options
+    println!("Can we get here?");
+
+    let addr = server_options
         .addr
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| IoError::from(io::ErrorKind::AddrNotAvailable))?;
-    let certs = CertificateDer::pem_file_iter(&options.cert)?.collect::<Result<Vec<_>, _>>()?;
-    let key = PrivateKeyDer::from_pem_file(&options.key)?;
-    let flag_echo = options.echo_mode;
+    let certs =
+        CertificateDer::pem_file_iter(&server_options.cert)?.collect::<Result<Vec<_>, _>>()?;
+    let key = PrivateKeyDer::from_pem_file(&server_options.key)?;
+    let flag_echo = server_options.echo_mode;
 
     let config = rustls::ServerConfig::builder()
         .with_no_client_auth()
