@@ -8,35 +8,31 @@ use std::{
 use anyhow::Result;
 use argh::FromArgs;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
+use serde::Deserialize;
 use tokio::{
+    fs,
     io::{AsyncWriteExt, copy, sink, split},
     net::TcpListener,
 };
 use tokio_rustls::TlsAcceptor;
 
-/// Tokio Rustls server example
-#[derive(FromArgs)]
+/// Server Options
+#[derive(Deserialize)]
 struct Options {
     /// bind addr
-    #[argh(positional)]
     addr: String,
-
     /// cert file
-    #[argh(option, short = 'c')]
     cert: PathBuf,
-
     /// key file
-    #[argh(option, short = 'k')]
     key: PathBuf,
-
     /// echo mode
-    #[argh(switch, short = 'e')]
     echo_mode: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let options: Options = argh::from_env();
+    let options: Options = ron::from_str(&fs::read_to_string("options.ron").await?)?;
+    println!("{}", options.addr);
 
     let addr = options
         .addr
