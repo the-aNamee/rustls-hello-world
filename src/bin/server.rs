@@ -32,8 +32,6 @@ async fn main() -> Result<()> {
     let server_options: ServerOptions =
         ron::from_str(&fs::read_to_string("server_options.ron").await?)?;
 
-    println!("Can we get here?");
-
     let addr = server_options
         .addr
         .to_socket_addrs()?
@@ -65,15 +63,7 @@ async fn main() -> Result<()> {
                 println!("Echo: {} - {}", peer_addr, n);
             } else {
                 let mut output = sink();
-                stream
-                    .write_all(
-                        &b"HTTP/1.0 200 ok\r\n\
-                                    Connection: close\r\n\
-                                    Content-length: 12\r\n\
-                                    \r\n\
-                                    Hello world!"[..],
-                    )
-                    .await?;
+                stream.write_all(&b"Hello world!"[..]).await?;
                 stream.shutdown().await?;
                 copy(&mut stream, &mut output).await?;
                 println!("Hello: {}", peer_addr);
