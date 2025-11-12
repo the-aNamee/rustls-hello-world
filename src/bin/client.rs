@@ -4,10 +4,12 @@ use rustls::pki_types::{CertificateDer, ServerName, pem::PemObject};
 use serde::Deserialize;
 use tokio::{
     fs,
-    io::{AsyncWriteExt, copy, split, stdin, stdout},
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
 };
 use tokio_rustls::TlsConnector;
+
+const IP: &str = "127.0.0.1:8443";
 
 #[derive(Deserialize)]
 struct ClientOptions {
@@ -25,13 +27,13 @@ struct ClientOptions {
 async fn main() -> anyhow::Result<()> {
     let options: ClientOptions = ron::from_str(&fs::read_to_string("client_options.ron").await?)?;
 
-    let addr = (options.host.as_str(), options.port)
+    let _addr = (options.host.as_str(), options.port)
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| io::ErrorKind::NotFound)
         .expect("There was a problematic problem.");
     let domain = options.domain.unwrap_or(options.host);
-    let content = format!("GET / HTTP/1.0\r\nHost: {}\r\n\r\n", domain);
+    let _content = format!("GET / HTTP/1.0\r\nHost: {}\r\n\r\n", domain);
 
     let mut root_cert_store = rustls::RootCertStore::empty();
     if let Some(cafile) = &options.cafile {
@@ -47,25 +49,28 @@ async fn main() -> anyhow::Result<()> {
         .with_no_client_auth();
     let connector = TlsConnector::from(Arc::new(config));
 
-    let stream = TcpStream::connect(&addr).await?;
+    let stream = TcpStream::connect(IP).await?;
+    let domain = ServerName::try_from("localhost")?;
+    let stream = connector.connect(domain, stream).await?;
 
-    let (mut stdin, mut stdout) = (stdin(), stdout());
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut stdin = BufReader::new(tokio::io::stdin()).lines();
+    let reader = BufReader::new(reader);
+    let mut server_lines = reader.lines();
 
-    let domain = ServerName::try_from(domain.as_str())?.to_owned();
-    let mut stream = connector.connect(domain, stream).await?;
-    stream.write_all(content.as_bytes()).await?;
+    println!("Connected to da server!");
 
-    let (mut reader, mut writer) = split(stream);
-
-    tokio::select! {
-        ret = copy(&mut reader, &mut stdout) => {
-            ret?;
-        },
-        ret = copy(&mut stdin, &mut writer) => {
-            ret?;
-            writer.shutdown().await?
+    loop {
+        tokio::select! {
+            Ok(Some(line)) = stdin.next_line() => {
+                writer.write_all(line.as_bytes()).await?;
+                writer.write_all(b"\n").await?;
+            }
+            Ok(Some(msg)) = server_lines.next_line() => {
+                println!("{msg}");
+            }
         }
     }
 
-    Ok(())
+    // Ok(())
 }

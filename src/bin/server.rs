@@ -10,8 +10,9 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use serde::Deserialize;
 use tokio::{
     fs,
-    io::{AsyncWriteExt, copy, sink, split},
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpListener,
+    sync::broadcast,
 };
 use tokio_rustls::TlsAcceptor;
 
@@ -40,41 +41,61 @@ async fn main() -> Result<()> {
     let certs =
         CertificateDer::pem_file_iter(&server_options.cert)?.collect::<Result<Vec<_>, _>>()?;
     let key = PrivateKeyDer::from_pem_file(&server_options.key)?;
-    let flag_echo = server_options.echo_mode;
+    let _flag_echo = server_options.echo_mode;
 
     let config = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)?;
-    let acceptor = TlsAcceptor::from(Arc::new(config));
 
+    let acceptor = TlsAcceptor::from(Arc::new(config));
     let listener = TcpListener::bind(&addr).await?;
 
+    let (tx, _rx) = broadcast::channel::<String>(100);
+
+    println!("Server running. Don't forget to say Beep!");
+
     loop {
-        let (stream, peer_addr) = listener.accept().await?;
+        let (tcp, addr) = listener.accept().await?;
         let acceptor = acceptor.clone();
-
-        let fut = async move {
-            let mut stream = acceptor.accept(stream).await?;
-
-            if flag_echo {
-                let (mut reader, mut writer) = split(stream);
-                let n = copy(&mut reader, &mut writer).await?;
-                writer.flush().await?;
-                println!("Echo: {} - {}", peer_addr, n);
-            } else {
-                let mut output = sink();
-                stream.write_all(&b"Hello world!"[..]).await?;
-                stream.shutdown().await?;
-                copy(&mut stream, &mut output).await?;
-                println!("Hello: {}", peer_addr);
-            }
-
-            Ok(()) as io::Result<()>
-        };
+        let tx = tx.clone();
+        let mut rx = tx.subscribe();
 
         tokio::spawn(async move {
-            if let Err(err) = fut.await {
-                eprintln!("{:?}", err);
+            let tls_stream = match acceptor.accept(tcp).await {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("TLS error: {e}");
+                    return;
+                }
+            };
+
+            let (reader, mut writer) = tokio::io::split(tls_stream);
+            let mut reader = BufReader::new(reader);
+            let mut line = String::new();
+
+            tx.send(format!("{addr} joined")).unwrap();
+
+            loop {
+                tokio::select! {
+                    result = reader.read_line(&mut line) => {
+                        if result.unwrap_or(0) == 0 {
+                            println!("{addr} disconnected");
+                            break;
+                        }
+                        let msg = format!("{addr}: {}", line.trim());
+                        tx.send(msg).unwrap();
+                        line.clear();
+                    }
+
+                    msg = rx.recv() => {
+                        if let Ok(msg) = msg {
+                            if writer.write_all(msg.as_bytes()).await.is_err() {
+                                break;
+                            }
+                            writer.write_all(b"\n").await.ok();
+                        }
+                    }
+                }
             }
         });
     }
