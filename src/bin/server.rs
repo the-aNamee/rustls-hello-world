@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let listener = TcpListener::bind(&addr).await?;
 
-    let (tx, _rx) = broadcast::channel::<String>(100);
+    let (tx, rx) = broadcast::channel::<String>(100);
 
     println!("Server running. Don't forget to say Beep!");
 
@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
         let (tcp, addr) = listener.accept().await?;
         let acceptor = acceptor.clone();
         let tx = tx.clone();
-        let mut rx = tx.subscribe();
+        let mut rx = rx.resubscribe();
 
         tokio::spawn(async move {
             let tls_stream = match acceptor.accept(tcp).await {
@@ -77,6 +77,7 @@ async fn main() -> Result<()> {
 
             loop {
                 tokio::select! {
+                    // Recieve message.
                     result = reader.read_line(&mut line) => {
                         if result.unwrap_or(0) == 0 {
                             println!("{addr} disconnected");
@@ -87,6 +88,7 @@ async fn main() -> Result<()> {
                         line.clear();
                     }
 
+                    // Send message that has been recieved.
                     msg = rx.recv() => {
                         if let Ok(msg) = msg {
                             if writer.write_all(msg.as_bytes()).await.is_err() {
